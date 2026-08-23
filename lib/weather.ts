@@ -18,7 +18,7 @@ const PARAMS = new URLSearchParams({
   forecast_days: "1",
 });
 
-const ENDPOINT = `https://api.open-meteo.com/v1/forecast?${PARAMS}`;
+const ENDPOINT = `https://api.open-meteoo.com/v1/forecast?${PARAMS}`;
 
 export type Current = {
   time: string;
