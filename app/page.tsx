@@ -9,14 +9,21 @@ export const revalidate = 900;
 
 export default async function Page() {
   // Parallel, not sequential — three round trips at once instead of stacked.
-  // Promise.all is safe here only because of the house rule that fetchers
-  // return null and never throw: a rejection would take down all three. Any new
-  // source added to this array must keep that contract.
-  const [weather, forecast, alerts] = await Promise.all([
+  // Promise.allSettled rather than Promise.all: the page no longer DEPENDS on
+  // the house rule that fetchers return null and never throw — a rejection
+  // from any one of these degrades to null instead of taking the other two
+  // sources down with it. Fetchers should still honor that rule (see
+  // lib/weather.ts, lib/nws.ts) so their own shape/429/timeout handling stays
+  // meaningful, but this call no longer has to trust that every fetcher, now
+  // and in the future, gets it right.
+  const [weatherResult, forecastResult, alertsResult] = await Promise.allSettled([
     getWeather(),
     getNwsForecast(),
     getNwsAlerts(),
   ]);
+  const weather = settledOrNull(weatherResult, "getWeather");
+  const forecast = settledOrNull(forecastResult, "getNwsForecast");
+  const alerts = settledOrNull(alertsResult, "getNwsAlerts");
 
   // When this render actually happened. The route is statically prerendered and
   // revalidated every 15 minutes, so this is stamped once per revalidation, not
@@ -71,6 +78,14 @@ export default async function Page() {
       </footer>
     </main>
   );
+}
+
+// A rejected fetcher is a bug — the house rule is that these never throw —
+// so it's logged loudly rather than blending in with an ordinary null result.
+function settledOrNull<T>(result: PromiseSettledResult<T>, label: string): T | null {
+  if (result.status === "fulfilled") return result.value;
+  console.error(`${label} rejected unexpectedly (fetchers should never throw)`, result.reason);
+  return null;
 }
 
 // Alert timestamps are ISO strings straight from NWS. They're validated as
@@ -209,7 +224,19 @@ function Comparison({ weather, forecast }: { weather: Weather | null; forecast: 
   const period = forecast ? forecast.properties.periods[0] : null;
   // Unit comes from the response, not from an assumption about `units=us`.
   const nwsUnit = period ? `°${period.temperatureUnit}` : "°F";
-  const diff = om !== null && period ? om - period.temperature : null;
+
+  // Open-Meteo is always Fahrenheit — lib/weather.ts hardcodes
+  // temperature_unit=fahrenheit in the query — but NWS's unit is whatever it
+  // sends back, and `units=us` is a request, not a guarantee. Subtracting
+  // across unit systems produces a plausible-looking number (e.g. Fahrenheit
+  // minus a Celsius value) next to a label that's individually correct, which
+  // is worse than an obviously broken one. Only compute a diff when both
+  // sides are confirmed to be the same unit.
+  const unitsMismatch = om !== null && period !== null && period.temperatureUnit !== "F";
+  const diff =
+    om !== null && period !== null && period.temperatureUnit === "F"
+      ? om - period.temperature
+      : null;
 
   return (
     <section className="mb-8 rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
@@ -234,6 +261,10 @@ function Comparison({ weather, forecast }: { weather: Weather | null; forecast: 
           {Math.abs(diff) < 0.05
             ? "They agree."
             : `Open-Meteo reads ${Math.abs(diff).toFixed(1)}°F ${diff > 0 ? "warmer" : "cooler"}.`}
+        </p>
+      ) : unitsMismatch ? (
+        <p className="mt-3 text-sm text-neutral-500">
+          Units differ — no comparison to draw.
         </p>
       ) : (
         <p className="mt-3 text-sm text-neutral-500">
