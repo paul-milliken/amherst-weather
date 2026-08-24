@@ -20,6 +20,17 @@ const PARAMS = new URLSearchParams({
 
 const ENDPOINT = `https://api.open-meteo.com/v1/forecast?${PARAMS}`;
 
+// Identifies the app and gives the upstream someone to contact if this page
+// ever misbehaves. Open-Meteo doesn't require it; NWS does (see lib/nws.ts).
+const USER_AGENT = "amherst-weather (paulmilliken.com, paulmilliken08@gmail.com)";
+
+// A hang is a failure mode too, and the worst-behaved one: without a deadline
+// the try/catch below never fires, the awaiting server component never
+// resolves, and the page hangs for as long as the upstream stays silent.
+// AbortSignal.timeout makes fetch reject with a TimeoutError, which lands in
+// the catch and returns null like any other failure.
+const TIMEOUT_MS = 5000;
+
 export type Current = {
   time: string;
   temperature_2m: number;
@@ -40,14 +51,15 @@ export type Hourly = {
 
 export type Weather = { current: Current; hourly: Hourly };
 
-// Returns null on ANY failure — network error, non-200, malformed body.
+// Returns null on ANY failure — network error, timeout, non-200, malformed body.
 // The page is responsible for rendering something sensible when it gets null.
 // Never throw from here: an unhandled throw becomes a 500 and the user sees nothing.
 export async function getWeather(): Promise<Weather | null> {
   try {
     const res = await fetch(ENDPOINT, {
       next: { revalidate: 900 }, // 15 minutes
-      headers: { "User-Agent": "amherst-weather (paulmilliken.com)" },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+      headers: { "User-Agent": USER_AGENT },
     });
 
     if (!res.ok) {
