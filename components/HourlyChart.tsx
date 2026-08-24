@@ -1,3 +1,5 @@
+import { formatOpenMeteoHour } from "@/lib/weather";
+
 // Hand-rolled SVG line chart. No charting library, no dependency, no bundle cost.
 // 24 points across the local day.
 //
@@ -69,7 +71,9 @@ export default function HourlyChart({ times, values, unit, label, accent }: Prop
 
         {hourLabels.map((i) => (
           <text key={i} x={x(i)} y={H - 8} textAnchor="middle" fontSize="11" fill="currentColor" fillOpacity="0.5">
-            {new Date(times[i]).toLocaleTimeString("en-US", { hour: "numeric", timeZone: "America/New_York" })}
+            {/* formatOpenMeteoHour, not `new Date(...)` — these are Open-Meteo
+                wall-clock strings with no UTC offset; see lib/weather.ts. */}
+            {formatOpenMeteoHour(times[i])}
           </text>
         ))}
       </svg>

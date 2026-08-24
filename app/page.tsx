@@ -1,4 +1,4 @@
-import { getWeather, type Weather } from "@/lib/weather";
+import { getWeather, formatOpenMeteoClock, type Weather } from "@/lib/weather";
 import { getNwsForecast, getNwsAlerts, type NwsAlertFeature, type NwsForecast } from "@/lib/nws";
 import { describeCode } from "@/lib/wmo";
 import { degreesToCompass } from "@/lib/compass";
@@ -27,11 +27,10 @@ export default async function Page() {
 
   // Every section below reads its own source and renders its own failure. There
   // is deliberately no early return: one dead upstream must not blank the page.
-  const updated = weather
-    ? new Date(weather.current.time).toLocaleTimeString("en-US", {
-        hour: "numeric", minute: "2-digit", timeZone: "America/New_York",
-      })
-    : null;
+  // formatOpenMeteoClock, not `new Date(...).toLocaleTimeString(...)` — see the
+  // comment on it in lib/weather.ts for why that round-trip through Date is
+  // the bug, not a style choice.
+  const updated = weather ? formatOpenMeteoClock(weather.current.time) : null;
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-12">

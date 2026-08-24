@@ -51,6 +51,49 @@ export type Hourly = {
 
 export type Weather = { current: Current; hourly: Hourly };
 
+// Open-Meteo, called with `timezone=America/New_York`, returns every timestamp
+// as a WALL-CLOCK string with no UTC offset — "2026-08-23T00:00", not
+// "...T00:00-05:00". The API already did the timezone conversion; the string
+// IS the local time in Amherst.
+//
+// That makes `new Date(iso)` the wrong tool: `Date` treats an offset-less ISO
+// string as UTC, so downstream `toLocaleTimeString(..., { timeZone:
+// "America/New_York" })` calls apply a SECOND timezone conversion on top of
+// the one the API already applied. Locally this can go unnoticed if your
+// machine happens to be near UTC-0, but Vercel's runtime is UTC, so every
+// displayed hour silently shifts back by the ET offset (4-5 hours) — midnight
+// renders as 8 PM the day before. Nothing throws; it just quietly lies.
+//
+// The fix is to never round-trip these strings through `Date` — read the hour
+// and minute straight out of the string instead. Don't "simplify" these back
+// into `new Date(...).toLocaleTimeString(...)`; that's the bug.
+//
+// NWS timestamps are the opposite case (see lib/nws.ts): they carry a real
+// offset, e.g. "2026-08-23T20:38:00-04:00", so `new Date` parses them
+// correctly regardless of the server's local timezone, and re-formatting with
+// `timeZone: "America/New_York"` there is the right thing to do. The two
+// sources need different handling because they hand back different string
+// shapes, not because one function is better than the other.
+
+// "2026-08-23T20:45" -> "8:45 PM". Matches the hour/minute formatting
+// `toLocaleTimeString` would produce, without parsing the string as a Date.
+export function formatOpenMeteoClock(wallClock: string): string {
+  const hour = Number(wallClock.slice(11, 13));
+  const minute = wallClock.slice(14, 16);
+  const period = hour < 12 ? "AM" : "PM";
+  const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${hour12}:${minute} ${period}`;
+}
+
+// "2026-08-23T00:00" -> "12 AM". Used for the hourly chart's axis labels,
+// which only need the hour.
+export function formatOpenMeteoHour(wallClock: string): string {
+  const hour = Number(wallClock.slice(11, 13));
+  const period = hour < 12 ? "AM" : "PM";
+  const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${hour12} ${period}`;
+}
+
 // Returns null on ANY failure — network error, timeout, non-200, malformed body.
 // The page is responsible for rendering something sensible when it gets null.
 // Never throw from here: an unhandled throw becomes a 500 and the user sees nothing.
